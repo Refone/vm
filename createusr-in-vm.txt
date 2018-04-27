@@ -1,0 +1,7 @@
+mkdir rootfs
+sudo mount $VM_IMG rootfs
+sudo chroot rootfs
+passwd
+useradd -G sudo -m -s /bin/bash $USERNAME
+echo $USERNAME:$NEWPASSWD | chpasswd
+exit

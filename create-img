@@ -1,0 +1,87 @@
+#!/bin/bash
+
+if [ "$1" == "" ]; then
+		echo "Usage: create-img <image.cfg>"
+		echo "Example: create-img create.cfg "
+		echo "		-- It will create an VM image as create.cfg state"
+		echo "To get more information, look through the template create.cfg" 
+		exit 0
+fi
+
+if [ ! -e $1 ]; then
+		echo "$1 not found."
+		exit 0
+fi
+
+if [ ! -e "IMG" ]; then
+		mkdir "IMG"
+fi
+
+typeset -A config
+config=(
+	[VM_NAME]="egg"
+	[VM_SIZE]="5G"
+	[VM_FORMAT]="ext4"
+	[ROOTFS_BASE]=""
+	[KERNEL_SOURCE]=""
+)
+
+while read line
+do
+		if echo $line | grep -F = &>/dev/null
+		then
+				varname=$(echo "$line" | cut -d '=' -f 1)
+				config[$varname]=$(echo "$line" | cut -d '=' -f 2-)
+		fi
+done < $1
+
+size_d=$(echo ${config[VM_SIZE]} | grep '[1-9][0-9]*[kmgKMG]')
+if [ "$size_d" == "" ]; then
+		echo "Size define error in $1"
+		exit 0
+fi
+
+name_prefix="qemu-img-"
+name_suffix=".img"
+IMG="$name_prefix""${config[VM_NAME]}""$name_suffix"
+IMG_DIR=./IMG/${config[VM_NAME]}/
+
+if [ -e "$IMG_DIR" ]; then
+		echo "$IMG has already exist."
+		exit 0
+fi
+
+# if any command goes wrong, we terminate this script.
+set -e	
+
+echo "Creating qemu image $IMG ..."
+
+# Making rootfs
+mkdir $IMG_DIR
+qemu-img create $IMG_DIR$IMG ${config[VM_SIZE]}
+echo "$IMG_DIR$IMG"
+mkfs.${config[VM_FORMAT]} $IMG_DIR$IMG
+rm -rf "$IMG_DIR"rootfs && install -d "$IMG_DIR"rootfs
+sudo mount -o loop "$IMG_DIR"$IMG "$IMG_DIR"rootfs
+sudo rm -rf "$IMG_DIR"rootfs/lost+found
+
+if [ ${config[ROOTFS_BASE]} != "" ]; then
+		sudo tar -xzf ${config[ROOTFS_BASE]} -C "$IMG_DIR"rootfs/
+		
+		TOPDIR=$PWD
+		cd ${config[KERNEL_SOURCE]}
+		sudo make modules_install INSTALL_MOD_PATH="$IMG_DIR"rootfs/
+		cd $TOPDIR
+
+else
+		sudo debootstrap --arch amd64 xenial "$IMG_DIR"rootfs
+fi
+
+# Creating initrd
+# mkinitramfs -o initrd.img --> this methods is instable, 
+#								we directly use /boot/initrd.img instad
+
+sudo umount "$IMG_DIR"rootfs
+sudo rm -rf "$IMG_DIR"rootfs
+
+echo "$IMG created done."
