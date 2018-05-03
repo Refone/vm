@@ -61,27 +61,45 @@ mkdir $IMG_DIR
 qemu-img create $IMG_DIR$IMG ${config[VM_SIZE]}
 echo "$IMG_DIR$IMG"
 mkfs.${config[VM_FORMAT]} $IMG_DIR$IMG
-rm -rf "$IMG_DIR"rootfs && install -d "$IMG_DIR"rootfs
-sudo mount -o loop "$IMG_DIR"$IMG "$IMG_DIR"rootfs
-sudo rm -rf "$IMG_DIR"rootfs/lost+found
+ROOTFS="$IMG_DIR"rootfs
+rm -rf $ROOTFS && install -d $ROOTFS
+sudo mount -o loop "$IMG_DIR"$IMG $ROOTFS
+sudo rm -rf $ROOTFS/lost+found
+sudo apt-get install qemu qemu-user-static binfmt-support debootstrap
 
-if [ ${config[ROOTFS_BASE]} != "" ]; then
-		sudo tar -xzf ${config[ROOTFS_BASE]} -C "$IMG_DIR"rootfs/
-		
-		TOPDIR=$PWD
-		cd ${config[KERNEL_SOURCE]}
-		sudo make modules_install INSTALL_MOD_PATH="$IMG_DIR"rootfs/
-		cd $TOPDIR
+sudo tar -xzf ${config[ROOTFS_BASE]} -C $ROOTFS
+sudo cp -a /usr/bin/qemu-$(uname -m)-static $ROOTFS/usr/bin/
+echo "Loading kernel modules..."
+sudo make -C ${config[KERNEL_SOURCE]} modules_install INSTALL_MOD_PATH=$ROOTFS 1>/dev/null 2>&1
 
-else
-		sudo debootstrap --arch amd64 xenial "$IMG_DIR"rootfs
-fi
+# Write /etc/ configures
+echo "Wrting default configures..."
+echo ${config[VM_NAME]}-vm > "$IMG_DIR"hostname
+sudo chmod 644 "$IMG_DIR"hostname
 
-# Creating initrd
-# mkinitramfs -o initrd.img --> this methods is instable, 
-#								we directly use /boot/initrd.img instad
+echo "127.0.0.1		localhost" > "$IMG_DIR"hosts
+sudo chmod 644 "$IMG_DIR"hosts
 
-sudo umount "$IMG_DIR"rootfs
-sudo rm -rf "$IMG_DIR"rootfs
+# echo "source /etc/network/interfaces.d/*" > "$IMG_DIR"interfaces
+# echo "auto lo" >> "$IMG_DIR"interfaces
+# echo "iface lo inet loopback" >> "$IMG_DIR"interfaces
+# echo "auto ens3" >> "$IMG_DIR"interfaces
+# echo "iface ens3 inet dhcp" >> "$IMG_DIR"interfaces
+# sudo chmod 644 "$IMG_DIR"interfaces
+# sudo cp "$IMG_DIR"interfaces $ROOTFS/etc/network/
+
+sudo cp /etc/resolv.conf $ROOTFS/etc/
+sudo cp "$IMG_DIR"hostname "$IMG_DIR"hosts $ROOTFS/etc/
+
+# Umount
+sudo sync
+sudo umount $ROOTFS
 
 echo "$IMG created done."
+echo "Type following thing after change root:"
+echo "passwd root"
+echo "useradd -G sudo -m -s /bin/bash <user_name>"
+echo "echo <user_name>:<password> | chpasswd"
+echo "ln -s /lib/systemd/system/serial-getty\@.service /etc/systemd/system/getty.target.wants/getty@tty1.service"
+echo "apt-get update"
+echo "apt-get install ifupdown net-tools vim sudo ssh udev"
